@@ -27,6 +27,20 @@ class CrossEntropyLoss(Module):
         
     def execute(self, output, target):
         return cross_entropy_loss(output, target,self.ignore_index)
+hh = 0
+def warpAffine(predmap,H_e2e,width,height):
+    #global hh
+    #hh+=1
+    #print('fetch',hh)
+    pred_e2e = cv2.warpAffine(predmap, H_e2e[0:2], (width, height), 
+                                          borderMode=cv2.BORDER_CONSTANT,
+                                          flags=cv2.WARP_INVERSE_MAP+cv2.INTER_LINEAR) 
+                               
+    pred_e2e = pred_e2e[:, :, 1]
+    pred_e2e[pred_e2e>0.5] = 1
+    pred_e2e[pred_e2e<=0.5] = 0
+    mask = pred_e2e.astype(np.uint8)
+    return mask
 
 class Pose2Seg(Module):
     def __init__(self):
@@ -38,6 +52,8 @@ class Pose2Seg(Module):
         self.size_align = 64
         self.size_output = 64
         self.cat_skeleton = True
+
+        self.benchmark = False
         
         self.backbone = resnet50FPN(pretrained=True)
         if self.cat_skeleton:
@@ -65,14 +81,34 @@ class Pose2Seg(Module):
         model_dict.update(pretrained_dict) 
         self.load_parameters(model_dict)
     
-    def execute(self, batchimgs, batchkpts, batchmasks=None):
-        self._setInputs(batchimgs, batchkpts, batchmasks)
-        self._calcNetInputs()
-        self._calcAlignMatrixs()        
+    def execute(self, batchimgs, batchkpts, batchmasks=None,pre_data=None):
+        if pre_data is None:
+            self._setInputs(batchimgs, batchkpts, batchmasks)
+            self._calcNetInputs()
+            self._calcAlignMatrixs() 
+        else:
+            self._cal_test_inputs(*pre_data)       
         output = self._forward()        
         # self.visualize(output)
         return output
     
+    def _cal_test_inputs(self,batchimgs,batchkpts,batchmasks,inputMatrixs,inputs,featAlignMatrixs,maskAlignMatrixs,skeletonFeats):
+        
+        self.batchimgs = batchimgs 
+        self.batchkpts = batchkpts
+        self.batchmasks = batchmasks
+        self.bz = len(self.batchimgs)
+
+        self.inputMatrixs = inputMatrixs
+        self.inputs = inputs
+
+        self.featAlignMatrixs = featAlignMatrixs
+        self.maskAlignMatrixs = maskAlignMatrixs
+        self.skeletonFeats = skeletonFeats
+
+
+
+
     def _setInputs(self, batchimgs, batchkpts, batchmasks=None):
         ## batchimgs: a list of array (H, W, 3)
         ## batchkpts: a list of array (m, 17, 3)
@@ -202,9 +238,13 @@ class Pose2Seg(Module):
             return loss
         else:
             netOutput = nn.softmax(netOutput, 1)
-            netOutput = jt.detach(netOutput).numpy()
-            output = self._getMaskOutput(netOutput)
-            
+            netOutput = jt.detach(netOutput)
+            #output = self._getMaskOutput(netOutput)
+            if not  self.benchmark:
+                output = self._getMaskOutput(netOutput)
+            else:
+                output = netOutput
+                #output.sync()
             if self.visCount < 0:
                 self._visualizeOutput(netOutput)
                 self.visCount += 1
@@ -226,7 +266,10 @@ class Pose2Seg(Module):
         
         
     def _getMaskOutput(self, netOutput):
-        netOutput = netOutput.transpose(0, 2, 3, 1)        
+        netOutput = netOutput.transpose(0, 2, 3, 1)
+        #netOutput.sync()  
+        netOutput = netOutput.numpy()  
+        #return None    
         MaskOutput = [[] for _ in range(self.bz)]
         
         idx = 0
@@ -235,7 +278,7 @@ class Pose2Seg(Module):
             for j in range(len(kpts)):
                 predmap = netOutput[idx]
                 H_e2e = self.maskAlignMatrixs[i][j]
-                
+                '''
                 pred_e2e = cv2.warpAffine(predmap, H_e2e[0:2], (width, height), 
                                           borderMode=cv2.BORDER_CONSTANT,
                                           flags=cv2.WARP_INVERSE_MAP+cv2.INTER_LINEAR) 
@@ -244,7 +287,11 @@ class Pose2Seg(Module):
                 pred_e2e[pred_e2e>0.5] = 1
                 pred_e2e[pred_e2e<=0.5] = 0
                 mask = pred_e2e.astype(np.uint8) 
-                MaskOutput[i].append(mask)                
+                MaskOutput[i].append(mask)  
+                '''
+                #jt.display_memory_info()
+                #jt.fetch(predmap,lambda predmap: MaskOutput[i].append(warpAffine(predmap,H_e2e,width,height)) )
+                MaskOutput[i].append(warpAffine(predmap,H_e2e,width,height))              
                 
                 idx += 1
         return MaskOutput

@@ -102,6 +102,7 @@ class Dataset(Dataset):
     
     def __getitem__(self, idx):
         rawdata = self.datainfos[idx]
+        
         img = rawdata['data']
         image_id = rawdata['id']
         
