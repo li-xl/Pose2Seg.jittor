@@ -1,6 +1,7 @@
 import argparse
 import numpy as np
 from tqdm import tqdm
+import torch
 import jittor as jt
 from jittor import nn
 import os.path as osp
@@ -47,12 +48,15 @@ def test(model, dataset='cocoVal', logger=print,benchmark=False):
 
     # jt.profiler.start(0, 0)
 
-    # for i in tqdm(range(data_len)):
-    for i,batch in tqdm(enumerate(datainfos)):
+    for i in tqdm(range(data_len)):
+    # for i,batch in tqdm(enumerate(datainfos)):
         #datainfos.display_worker_status()
         #if i>100:break
-        # rawdata = datainfos[i]
-        rawdata = batch[0]
+        if i==20:
+            start_time = time.time()
+
+        rawdata = datainfos[i]
+        # rawdata = batch[0]
         img = rawdata['data']
         image_id = rawdata['id']
         
@@ -99,7 +103,7 @@ def test(model, dataset='cocoVal', logger=print,benchmark=False):
     '''
     # print(len(results_segm))
     end_time = time.time()
-    print('fps',data_len/(end_time-start_time))
+    print('fps',(data_len-20)/(end_time-start_time))
 
     
     
